@@ -582,6 +582,7 @@ public class TreeEntity : Tree, IInteractableObject, IDamageable, IMinimapObject
                     if (trunkResources != null) trunkResources.ForEach(x => changes.AddItems(x.Key, x.Value.RandInt));
                     else DebugUtils.Fail("Trunk resources missing for: " + this.Species.Name);
                     changes.TryApply();
+                    this.stumpHealth = 0;
                     this.RPC("DestroyStump");
                 }
 
