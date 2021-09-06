@@ -34,6 +34,8 @@ using Eco.Gameplay.Civics;
 using Eco.Gameplay.Civics.Laws;
 using Eco.Gameplay.Utils;
 using Eco.Shared.IoC;
+using Eco.Gameplay.Skills;
+using Eco.Mods.TechTree;
 
 [Serialized]
 class TrunkPiece
@@ -424,8 +426,21 @@ public class TreeEntity : Tree, IInteractableObject, IDamageable, IMinimapObject
                             Citizen = player.User
                         }, player?.User);
 
-                        World.SetBlock(this.Species.DebrisType, abovepos);
-                        player.SpawnBlockEffect(abovepos, this.Species.DebrisType, BlockEffect.Place);
+                        // If logging skill >= 7 then stop spawning debris and adding debris items to inventory.
+                        Skill loggingSkill = player.User.Skillset.GetSkill(typeof(LoggingSkill));
+                        if (loggingSkill != null && loggingSkill.Level >= 7)
+                        {
+                            var changes = new InventoryChangeSet(player.User.Inventory, player.User);
+                            var debrisResources = this.Species.DebrisResources;
+                            debrisResources.ForEach(x => changes.AddItems(x.Key, x.Value.RandInt));
+                            changes.TryApply();
+                        }
+                        else
+                        {
+                            World.SetBlock(this.Species.DebrisType, abovepos);
+                            player.SpawnBlockEffect(abovepos, this.Species.DebrisType, BlockEffect.Place);
+                        }
+
                         RoomData.QueueRoomTest(abovepos);
                         if (Interlocked.Increment(ref this.treeDebrisSpawned) >= MaxTreeDebris) return;
                     }
@@ -556,6 +571,20 @@ public class TreeEntity : Tree, IInteractableObject, IDamageable, IMinimapObject
                 this.health = 0;
                 this.FellTree(damager);
                 EcoSim.PlantSim.KillPlant(this, DeathType.Logging, true);
+                
+                //if logging skil >= 5 then auto destroy stump
+                Skill loggingSkill = context.Player.User.Skillset.GetSkill(typeof(LoggingSkill));
+                if (loggingSkill != null && loggingSkill.Level >= 5)
+                {
+                    var player = damager as Player;
+                    var changes = new InventoryChangeSet(player.User.Inventory, player.User);
+                    var trunkResources = this.Species.TrunkResources;
+                    if (trunkResources != null) trunkResources.ForEach(x => changes.AddItems(x.Key, x.Value.RandInt));
+                    else DebugUtils.Fail("Trunk resources missing for: " + this.Species.Name);
+                    changes.TryApply();
+                    this.RPC("DestroyStump");
+                }
+
             }
 
             if (user != null) (context.SelectedItem as ToolItem)?.AddExperience(user, DamageExperienceMultiplier * damageDone, Localizer.Do($"felling {Localizer.A(this.Species.DisplayName).AppendSpaceIfSet()}{this.Species.UILink()}" /*c: should be unisex translations. e.g.: "you earned xp felling {a/an} {Redwood/Oak}."*/));
@@ -584,7 +613,6 @@ public class TreeEntity : Tree, IInteractableObject, IDamageable, IMinimapObject
             pack.AddPostEffect(() =>
             { 
                 this.stumpHealth = Mathf.Max(0, this.stumpHealth - amount);
-
                 if (this.stumpHealth <= 0)
                 {
                     if (World.GetBlock(this.Position.XYZi).GetType() == this.Species.BlockType) World.DeleteBlock(this.Position.XYZi);
